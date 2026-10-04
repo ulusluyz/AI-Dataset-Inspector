@@ -1,0 +1,288 @@
+document.addEventListener("DOMContentLoaded", () => {
+  // DOM Elements
+  const openSettingsBtn = document.getElementById("openSettingsBtn");
+  const closeSettingsBtn = document.getElementById("closeSettingsBtn");
+  const settingsModal = document.getElementById("settingsModal");
+  const settingsForm = document.getElementById("settingsForm");
+  const apiKeyInput = document.getElementById("apiKeyInput");
+  const modelSelect = document.getElementById("modelSelect");
+  const deleteKeyBtn = document.getElementById("deleteKeyBtn");
+  const settingsMsg = document.getElementById("settingsMsg");
+  const apiKeyStatusText = document.getElementById("apiKeyStatusText");
+
+  const analyzeForm = document.getElementById("analyzeForm");
+  const datasetUrlInput = document.getElementById("datasetUrlInput");
+  const submitBtn = document.getElementById("submitBtn");
+
+  const progressCard = document.getElementById("progressCard");
+  const progressLogs = document.getElementById("progressLogs");
+  const progressPercentText = document.getElementById("progressPercentText");
+
+  const errorCard = document.getElementById("errorCard");
+  const errorMessageText = document.getElementById("errorMessageText");
+
+  const resultsCard = document.getElementById("resultsCard");
+  const downloadJsonBtn = document.getElementById("downloadJsonBtn");
+  const downloadMdBtn = document.getElementById("downloadMdBtn");
+
+  let activeReportId = null;
+
+  // Initialize Settings
+  checkSettingsStatus();
+
+  // Modal Listeners
+  openSettingsBtn.addEventListener("click", () => {
+    settingsModal.classList.remove("hidden");
+    fetchAvailableModels();
+  });
+
+  closeSettingsBtn.addEventListener("click", () => {
+    settingsModal.classList.add("hidden");
+  });
+
+  // Save Settings
+  settingsForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const apiKey = apiKeyInput.value.trim();
+    const selectedModel = modelSelect.value;
+
+    showSettingsMsg("Doğrulanıyor...", "info");
+
+    try {
+      const resp = await fetch("/api/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ openai_api_key: apiKey, openai_model: selectedModel })
+      });
+      const data = await resp.json();
+
+      if (resp.ok && data.success) {
+        showSettingsMsg("✓ Başarıyla doğrulandı ve kaydedildi.", "success");
+        apiKeyInput.value = "";
+        checkSettingsStatus();
+        setTimeout(() => settingsModal.classList.add("hidden"), 1200);
+      } else {
+        showSettingsMsg(`Hata: ${data.detail || "API Key doğrulanamadı."}`, "error");
+      }
+    } catch (err) {
+      showSettingsMsg(`Bağlantı hatası: ${err.message}`, "error");
+    }
+  });
+
+  // Delete Settings
+  deleteKeyBtn.addEventListener("click", async () => {
+    if (!confirm("API anahtarını silmek istediğinize emin misiniz?")) return;
+    try {
+      await fetch("/api/settings", { method: "DELETE" });
+      checkSettingsStatus();
+      showSettingsMsg("API anahtarı silindi.", "info");
+      apiKeyInput.value = "";
+    } catch (err) {
+      showSettingsMsg("Silme hatası oluştu.", "error");
+    }
+  });
+
+  async function checkSettingsStatus() {
+    try {
+      const resp = await fetch("/api/settings");
+      const data = await resp.json();
+      if (data.configured) {
+        apiKeyStatusText.textContent = `API Key: ${data.masked_key} (${data.openai_model})`;
+        openSettingsBtn.classList.remove("border-slate-700");
+        openSettingsBtn.classList.add("border-emerald-500/50", "text-emerald-400");
+      } else {
+        apiKeyStatusText.textContent = "API Key Yapılandır";
+        openSettingsBtn.classList.remove("border-emerald-500/50", "text-emerald-400");
+        openSettingsBtn.classList.add("border-amber-500/50", "text-amber-400");
+      }
+    } catch (err) {
+      apiKeyStatusText.textContent = "Ayarlar Yüklenemedi";
+    }
+  }
+
+  async function fetchAvailableModels() {
+    try {
+      const resp = await fetch("/api/models");
+      const data = await resp.json();
+      if (data.models && data.models.length > 0) {
+        modelSelect.innerHTML = "";
+        data.models.forEach((m) => {
+          const opt = document.createElement("option");
+          opt.value = m;
+          opt.textContent = m;
+          modelSelect.appendChild(opt);
+        });
+      }
+    } catch (e) {
+      console.log("Model list fetch error:", e);
+    }
+  }
+
+  function showSettingsMsg(msg, type) {
+    settingsMsg.textContent = msg;
+    settingsMsg.classList.remove("hidden", "bg-indigo-950", "text-indigo-300", "bg-emerald-950", "text-emerald-300", "bg-red-950", "text-red-300");
+    if (type === "success") {
+      settingsMsg.classList.add("bg-emerald-950", "text-emerald-300");
+    } else if (type === "error") {
+      settingsMsg.classList.add("bg-red-950", "text-red-300");
+    } else {
+      settingsMsg.classList.add("bg-indigo-950", "text-indigo-300");
+    }
+  }
+
+  // Handle Analysis Stream
+  analyzeForm.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const url = datasetUrlInput.value.trim();
+    if (!url) return;
+
+    handleStartAnalysis(url);
+  });
+
+  function handleStartAnalysis(datasetUrl) {
+    // Reset UI
+    errorCard.classList.add("hidden");
+    resultsCard.classList.add("hidden");
+    progressCard.classList.remove("hidden");
+    progressLogs.innerHTML = "";
+    submitBtn.disabled = true;
+
+    const eventSource = new EventSource(`/api/analyze/stream?dataset_url=${encodeURIComponent(datasetUrl)}`);
+
+    eventSource.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+
+      if (data.type === "progress") {
+        progressPercentText.textContent = `Adım ${data.step}/6`;
+        const logLine = document.createElement("div");
+        logLine.className = "flex items-center space-x-2 text-slate-300 py-1 border-b border-slate-700/40";
+        logLine.innerHTML = `<span class="text-emerald-400 font-bold">${data.message}</span>`;
+        progressLogs.appendChild(logLine);
+        progressLogs.scrollTop = progressLogs.scrollHeight;
+      } else if (data.type === "complete") {
+        eventSource.close();
+        submitBtn.disabled = false;
+        activeReportId = data.report_id;
+        renderAnalysisResults(data.report);
+      } else if (data.type === "error") {
+        eventSource.close();
+        submitBtn.disabled = false;
+        progressCard.classList.add("hidden");
+        errorCard.classList.remove("hidden");
+        errorMessageText.textContent = data.message;
+      }
+    };
+
+    eventSource.onerror = (err) => {
+      eventSource.close();
+      submitBtn.disabled = false;
+      progressCard.classList.add("hidden");
+      errorCard.classList.remove("hidden");
+      errorMessageText.textContent = "Ajan sunucu bağlantısında beklenmeyen bir kopma oluştu.";
+    };
+  }
+
+  function renderAnalysisResults(report) {
+    progressCard.classList.add("hidden");
+    resultsCard.classList.remove("hidden");
+
+    // Decision Badge
+    const decisionBadge = document.getElementById("decisionBadge");
+    decisionBadge.textContent = report.download_recommendation;
+    decisionBadge.className = "px-6 py-2 rounded-xl text-xl font-black tracking-wide shadow-xl uppercase ";
+    if (report.download_recommendation === "İNDİR") {
+      decisionBadge.classList.add("badge-indir");
+    } else if (report.download_recommendation === "DİKKAT") {
+      decisionBadge.classList.add("badge-dikkat");
+    } else {
+      decisionBadge.classList.add("badge-indirme");
+    }
+
+    // Quality & Confidence
+    document.getElementById("qualityBadge").textContent = `Data Quality: ${report.data_quality}`;
+    document.getElementById("confidenceBadge").textContent = `Analiz Güveni: %${report.analysis_confidence_score}`;
+    document.getElementById("datasetTitleText").textContent = report.dataset_id;
+    document.getElementById("summaryText").textContent = report.summary_explanation;
+
+    // Grid stats
+    document.getElementById("primaryLangText").textContent = report.primary_language;
+    document.getElementById("datasetTypesText").textContent = report.dataset_types.join(", ");
+    document.getElementById("dataOriginText").textContent = report.data_origin_type;
+    document.getElementById("isChatText").textContent = report.is_chat_data;
+    document.getElementById("isInstructionText").textContent = report.is_instruction_data;
+    document.getElementById("isQaText").textContent = report.is_qa_data;
+
+    document.getElementById("cleanlinessText").textContent = report.data_cleanliness;
+    document.getElementById("repetitionRiskText").textContent = report.repetition_risk;
+    document.getElementById("piiRiskText").textContent = report.pii_risk;
+    document.getElementById("licenseStatusText").textContent = report.license_status;
+    document.getElementById("provenanceText").textContent = report.provenance_status;
+
+    // LLM Suitability Matrix
+    const suit = report.llm_suitability;
+    const matrixContainer = document.getElementById("llmSuitabilityMatrix");
+    matrixContainer.innerHTML = `
+      <div class="bg-slate-900 p-3 rounded-xl border border-slate-700">
+        <div class="text-xs text-slate-400 mb-1">Pretraining</div>
+        <div class="text-sm font-bold ${getSuitabilityColor(suit.pretraining)}">${suit.pretraining}</div>
+      </div>
+      <div class="bg-slate-900 p-3 rounded-xl border border-slate-700">
+        <div class="text-xs text-slate-400 mb-1">Continued Pretrain</div>
+        <div class="text-sm font-bold ${getSuitabilityColor(suit.continued_pretraining)}">${suit.continued_pretraining}</div>
+      </div>
+      <div class="bg-slate-900 p-3 rounded-xl border border-slate-700">
+        <div class="text-xs text-slate-400 mb-1">Instruction / SFT</div>
+        <div class="text-sm font-bold ${getSuitabilityColor(suit.instruction_sft)}">${suit.instruction_sft}</div>
+      </div>
+      <div class="bg-slate-900 p-3 rounded-xl border border-slate-700">
+        <div class="text-xs text-slate-400 mb-1">Chat Training</div>
+        <div class="text-sm font-bold ${getSuitabilityColor(suit.chat_training)}">${suit.chat_training}</div>
+      </div>
+      <div class="bg-slate-900 p-3 rounded-xl border border-slate-700">
+        <div class="text-xs text-slate-400 mb-1">QA Training</div>
+        <div class="text-sm font-bold ${getSuitabilityColor(suit.qa_training)}">${suit.qa_training}</div>
+      </div>
+    `;
+    document.getElementById("llmSuitabilityExplanation").textContent = suit.explanation;
+
+    // Evidence List
+    const evidenceList = document.getElementById("evidenceList");
+    evidenceList.innerHTML = "";
+    if (report.findings_evidence && report.findings_evidence.length > 0) {
+      report.findings_evidence.forEach((ev) => {
+        const item = document.createElement("div");
+        item.className = "bg-slate-900 p-3 rounded-xl border border-slate-700/80 space-y-1";
+        item.innerHTML = `
+          <div class="flex items-center justify-between text-xs font-semibold text-purple-300">
+            <span><i class="fa-solid fa-bug mr-1"></i> ${ev.bulgu || "Bulgu"}</span>
+            <span class="text-slate-400">${ev.split || ""}</span>
+          </div>
+          <p class="text-xs font-mono text-slate-300 bg-slate-950 p-2 rounded border border-slate-800 break-all">${ev.ornek || ""}</p>
+        `;
+        evidenceList.appendChild(item);
+      });
+    } else {
+      evidenceList.innerHTML = `<div class="text-xs text-slate-400 italic">Ciddi veya kritik olumsuz kanıt tespit edilmedi.</div>`;
+    }
+  }
+
+  function getSuitabilityColor(val) {
+    if (val.includes("Çok uygun")) return "text-emerald-400";
+    if (val.includes("Uygun") && !val.includes("değil")) return "text-emerald-300";
+    if (val.includes("Kısmen")) return "text-amber-400";
+    return "text-red-400";
+  }
+
+  // Export handlers
+  downloadJsonBtn.addEventListener("click", () => {
+    if (activeReportId) {
+      window.location.href = `/api/reports/${activeReportId}/json`;
+    }
+  });
+
+  downloadMdBtn.addEventListener("click", () => {
+    if (activeReportId) {
+      window.location.href = `/api/reports/${activeReportId}/markdown`;
+    }
+  });
+});

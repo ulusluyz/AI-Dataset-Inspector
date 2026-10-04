@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+.venv/
+ENV/
+
+# Data and Secret Storage
+.data/
+*.key
+*.pem
+*.secret
+.env
+.env.local
+
+# Logs and test caches
+*.log
+.pytest_cache/
+.coverage
+htmlcov/
+.hypothesis/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Dataset Inspector</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    body { font-family: 'Inter', sans-serif; }
+    .badge-indir { background-color: #059669; color: white; }
+    .badge-dikkat { background-color: #d97706; color: white; }
+    .badge-indirme { background-color: #dc2626; color: white; }
+  </style>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col">
+
+  <!-- Header / Navigation -->
+  <header class="border-b border-slate-800 bg-slate-950/80 backdrop-blur sticky top-0 z-50">
+    <div class="max-w-6xl mx-auto px-4 py-4 flex justify-between items-center">
+      <div class="flex items-center space-x-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-500 to-purple-500 flex items-center justify-center font-bold text-white text-xl shadow-lg shadow-indigo-500/20">
+          <i class="fa-solid me-0 fa-magnifying-glass-chart"></i>
+        </div>
+        <div>
+          <h1 class="text-xl font-bold bg-gradient-to-r from-white to-slate-400 bg-clip-text text-transparent">AI Dataset Inspector</h1>
+          <p class="text-xs text-slate-400">Hugging Face Dataset Denetim Ajanı</p>
+        </div>
+      </div>
+
+      <!-- API Settings Trigger -->
+      <button id="openSettingsBtn" class="flex items-center space-x-2 bg-slate-800 hover:bg-slate-700 px-4 py-2 rounded-lg border border-slate-700 text-sm font-medium transition">
+        <i class="fa-solid fa-key text-amber-400"></i>
+        <span id="apiKeyStatusText">API Key Yapılandır</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="max-w-6xl mx-auto px-4 py-8 flex-1 w-full space-y-8">
+
+    <!-- Hero / Input Card -->
+    <div class="bg-slate-800/60 border border-slate-700/60 rounded-2xl p-6 md:p-8 shadow-2xl relative overflow-hidden backdrop-blur">
+      <div class="max-w-3xl space-y-4">
+        <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+          <i class="fa-solid fa-shield-halved mr-1.5"></i> Güvenli Remote Analiz Engine
+        </span>
+        <h2 class="text-3xl font-extrabold text-white tracking-tight">Dataset'i İndirmeden Önce Tam Kapsamlı İnceleyin</h2>
+        <p class="text-slate-300 text-sm md:text-base leading-relaxed">
+          Hugging Face üzerindeki dataset bağlantısını girin. Ajan verisetinin tamamını bilgisayarınıza indirmeden uzaktan analiz etsin, kaliteyi sınıflandırsın ve bilinçli karar versin.
+        </p>
+      </div>
+
+      <!-- Input Form -->
+      <form id="analyzeForm" class="mt-6 space-y-3">
+        <label for="datasetUrlInput" class="block text-xs font-semibold text-slate-300 uppercase tracking-wider">Hugging Face Dataset Bağlantısı</label>
+        <div class="flex flex-col sm:flex-row gap-3">
+          <div class="relative flex-1">
+            <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+              <i class="fa-solid fa-link"></i>
+            </div>
+            <input type="url" id="datasetUrlInput" required
+              placeholder="https://huggingface.co/datasets/owner/dataset_name"
+              class="w-full pl-10 pr-4 py-3.5 bg-slate-900 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition text-sm">
+          </div>
+          <button type="submit" id="submitBtn"
+            class="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold px-8 py-3.5 rounded-xl shadow-lg shadow-indigo-600/30 flex items-center justify-center space-x-2 transition disabled:opacity-50 disabled:cursor-not-allowed">
+            <i class="fa-solid fa-paper-plane"></i>
+            <span>AJANI GÖNDER</span>
+          </button>
+        </div>
+        <p class="text-xs text-slate-400 flex items-center space-x-1 pt-1">
+          <i class="fa-circle-info text-indigo-400"></i>
+          <span>Yalnızca Hugging Face üzerindeki dataset (<code>/datasets/</code>) bağlantılarını girin.</span>
+        </p>
+      </form>
+    </div>
+
+    <!-- Agent Execution Progress View -->
+    <div id="progressCard" class="hidden bg-slate-800/80 border border-slate-700 rounded-2xl p-6 shadow-xl space-y-4">
+      <div class="flex items-center justify-between border-b border-slate-700/60 pb-3">
+        <h3 class="text-lg font-bold text-white flex items-center space-x-2">
+          <i class="fa-solid fa-circle-notch fa-spin text-indigo-400"></i>
+          <span>Denetim Ajanı Çalışıyor...</span>
+        </h3>
+        <span id="progressPercentText" class="text-xs font-mono bg-indigo-950 text-indigo-300 border border-indigo-800 px-2.5 py-1 rounded-md">Adım 1/6</span>
+      </div>
+      <div class="space-y-2 font-mono text-xs md:text-sm" id="progressLogs">
+        <!-- Live SSE Logs appended here -->
+      </div>
+    </div>
+
+    <!-- Error Alert View -->
+    <div id="errorCard" class="hidden bg-red-950/40 border border-red-800/80 rounded-2xl p-6 text-red-200 space-y-2">
+      <div class="flex items-center space-x-2 font-bold text-red-400">
+        <i class="fa-solid fa-triangle-exclamation text-xl"></i>
+        <span>Hata Oluştu</span>
+      </div>
+      <p id="errorMessageText" class="text-sm text-red-300"></p>
+    </div>
+
+    <!-- Analysis Results View -->
+    <div id="resultsCard" class="hidden space-y-6">
+
+      <!-- Top Recommendation Banner -->
+      <div class="bg-slate-800 border border-slate-700 rounded-2xl p-6 shadow-2xl flex flex-col md:flex-row items-center justify-between gap-6">
+        <div class="space-y-2 text-center md:text-left">
+          <div class="flex flex-wrap items-center justify-center md:justify-start gap-2">
+            <span id="decisionBadge" class="px-5 py-2 rounded-xl text-lg font-black tracking-wide shadow-lg">
+              İNDİR
+            </span>
+            <span id="qualityBadge" class="px-3 py-1 rounded-lg text-xs font-bold uppercase bg-slate-700 text-slate-200 border border-slate-600">
+              Data Quality: EXCELLENT
+            </span>
+            <span id="confidenceBadge" class="px-3 py-1 rounded-lg text-xs font-bold bg-indigo-950 text-indigo-300 border border-indigo-800">
+              Analiz Güveni: %91 (Yüksek)
+            </span>
+          </div>
+          <h3 id="datasetTitleText" class="text-2xl font-bold text-white">owner/dataset</h3>
+          <p id="summaryText" class="text-slate-300 text-sm leading-relaxed max-w-3xl"></p>
+        </div>
+
+        <!-- Export Action Buttons -->
+        <div class="flex flex-col sm:flex-row gap-2 shrink-0">
+          <button id="downloadJsonBtn" class="bg-slate-700 hover:bg-slate-600 text-white text-xs font-semibold px-4 py-2.5 rounded-lg border border-slate-600 flex items-center justify-center space-x-1.5 transition">
+            <i class="fa-solid fa-file-code"></i>
+            <span>RAPORU JSON İNDİR</span>
+          </button>
+          <button id="downloadMdBtn" class="bg-slate-700 hover:bg-slate-600 text-white text-xs font-semibold px-4 py-2.5 rounded-lg border border-slate-600 flex items-center justify-center space-x-1.5 transition">
+            <i class="fa-solid fa-file-lines"></i>
+            <span>RAPORU MARKDOWN İNDİR</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Detailed Analysis Grid -->
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+
+        <!-- Card: Temel Bilgiler & Dil -->
+        <div class="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 space-y-4">
+          <h4 class="text-sm font-bold text-slate-200 uppercase tracking-wider flex items-center space-x-2 border-b border-slate-700 pb-2">
+            <i class="fa-solid fa-language text-indigo-400"></i>
+            <span>Dil & Tür Analizi</span>
+          </h4>
+          <div class="space-y-2 text-sm">
+            <div class="flex justify-between"><span class="text-slate-400">Ana Dil:</span><span id="primaryLangText" class="font-semibold text-white">Türkçe</span></div>
+            <div class="flex justify-between"><span class="text-slate-400">Veri Türü:</span><span id="datasetTypesText" class="font-semibold text-white">Doğal Dil</span></div>
+            <div class="flex justify-between"><span class="text-slate-400">Köken / Kaynak:</span><span id="dataOriginText" class="font-semibold text-white">İnsan Üretimi</span></div>
+            <div class="flex justify-between"><span class="text-slate-400">Sohbet Verisi:</span><span id="isChatText" class="font-semibold text-white">Hayır</span></div>
+            <div class="flex justify-between"><span class="text-slate-400">Instruction Verisi:</span><span id="isInstructionText" class="font-semibold text-white">Hayır</span></div>
+            <div class="flex justify-between"><span class="text-slate-400">Soru-Cevap:</span><span id="isQaText" class="font-semibold text-white">Hayır</span></div>
+          </div>
+        </div>
+
+        <!-- Card: Temizlik & Kalite Ölçümleri -->
+        <div class="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 space-y-4">
+          <h4 class="text-sm font-bold text-slate-200 uppercase tracking-wider flex items-center space-x-2 border-b border-slate-700 pb-2">
+            <i class="fa-solid fa-broom text-emerald-400"></i>
+            <span>Temizlik & Risk Ölçümü</span>
+          </h4>
+          <div class="space-y-2 text-sm">
+            <div class="flex justify-between"><span class="text-slate-400">Temizlik Durumu:</span><span id="cleanlinessText" class="font-semibold text-white">TEMİZ</span></div>
+            <div class="flex justify-between"><span class="text-slate-400">Exact Duplicate:</span><span id="dupStatsText" class="font-semibold text-white">%0.0</span></div>
+            <div class="flex justify-between"><span class="text-slate-400">Kısa Kayıtlar:</span><span id="shortRowsText" class="font-semibold text-white">0</span></div>
+            <div class="flex justify-between"><span class="text-slate-400">HTML / Junk:</span><span id="htmlJunkText" class="font-semibold text-white">0</span></div>
+            <div class="flex justify-between"><span class="text-slate-400">PII Riski:</span><span id="piiRiskText" class="font-semibold text-white">Düşük</span></div>
+            <div class="flex justify-between"><span class="text-slate-400">Tekrar Riski:</span><span id="repetitionRiskText" class="font-semibold text-white">Düşük</span></div>
+          </div>
+        </div>
+
+        <!-- Card: Lisans & Provenance -->
+        <div class="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 space-y-4">
+          <h4 class="text-sm font-bold text-slate-200 uppercase tracking-wider flex items-center space-x-2 border-b border-slate-700 pb-2">
+            <i class="fa-solid fa-file-contract text-amber-400"></i>
+            <span>Lisans & Provenance</span>
+          </h4>
+          <div class="space-y-2 text-sm">
+            <div class="flex justify-between"><span class="text-slate-400">Lisans Durumu:</span><span id="licenseStatusText" class="font-semibold text-white">Açık</span></div>
+            <div class="flex justify-between"><span class="text-slate-400">Kaynak Açıklaması:</span><span id="provenanceText" class="font-semibold text-white">Açıklanmış</span></div>
+            <div class="flex justify-between"><span class="text-slate-400">İncelenen Örnek:</span><span id="sampledRowsCountText" class="font-semibold text-white">2,400</span></div>
+            <div class="flex justify-between"><span class="text-slate-400">Tahmini Toplam:</span><span id="totalRowsEstText" class="font-semibold text-white">100,000</span></div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- LLM Training Suitability Matrix -->
+      <div class="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-6 space-y-4">
+        <h4 class="text-md font-bold text-white flex items-center space-x-2">
+          <i class="fa-solid fa-graduation-cap text-indigo-400"></i>
+          <span>LLM Eğitim Uygunluk Matrisi</span>
+        </h4>
+        <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 text-center" id="llmSuitabilityMatrix">
+          <!-- Populated dynamically -->
+        </div>
+        <p id="llmSuitabilityExplanation" class="text-xs text-slate-400 italic pt-2 border-t border-slate-700/60"></p>
+      </div>
+
+      <!-- Findings & Evidence List -->
+      <div class="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-6 space-y-4">
+        <h4 class="text-md font-bold text-white flex items-center space-x-2">
+          <i class="fa-solid fa-magnifying-glass-location text-purple-400"></i>
+          <span>Tespit Edilen Kanıtlar (Evidence)</span>
+        </h4>
+        <div id="evidenceList" class="space-y-2 text-sm">
+          <!-- Evidence items injected dynamically -->
+        </div>
+      </div>
+
+    </div>
+
+  </main>
+
+  <!-- Settings Modal -->
+  <div id="settingsModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-slate-800 border border-slate-700 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-5">
+      <div class="flex justify-between items-center border-b border-slate-700 pb-3">
+        <h3 class="text-lg font-bold text-white flex items-center space-x-2">
+          <i class="fa-solid fa-key text-amber-400"></i>
+          <span>OpenAI API Yapılandırması</span>
+        </h3>
+        <button id="closeSettingsBtn" class="text-slate-400 hover:text-white transition">
+          <i class="fa-solid fa-xmark text-xl"></i>
+        </button>
+      </div>
+
+      <form id="settingsForm" class="space-y-4">
+        <div class="space-y-1.5">
+          <label class="block text-xs font-semibold text-slate-300 uppercase">OpenAI API Key</label>
+          <input type="password" id="apiKeyInput" required placeholder="sk-..."
+            class="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500 text-sm">
+          <p class="text-xs text-slate-400">API anahtarı yalnızca sunucuda kısıtlı izinlerle tutulur, frontend'e ve loglara sızdırılmaz.</p>
+        </div>
+
+        <div class="space-y-1.5">
+          <label class="block text-xs font-semibold text-slate-300 uppercase">OpenAI Model Seçimi</label>
+          <select id="modelSelect" class="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-amber-500 text-sm">
+            <option value="gpt-4o-mini">gpt-4o-mini (Önerilen)</option>
+            <option value="gpt-4o">gpt-4o</option>
+          </select>
+        </div>
+
+        <div id="settingsMsg" class="hidden text-xs font-medium p-3 rounded-lg"></div>
+
+        <div class="flex items-center justify-between pt-2">
+          <button type="button" id="deleteKeyBtn" class="text-red-400 hover:text-red-300 text-xs font-semibold flex items-center space-x-1 transition">
+            <i class="fa-solid fa-trash"></i>
+            <span>API Key Sil</span>
+          </button>
+          <button type="submit" id="saveKeyBtn" class="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-5 py-2.5 rounded-xl text-sm transition">
+            DOĞRULA VE KAYDET
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
