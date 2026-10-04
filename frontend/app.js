@@ -12,6 +12,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const openaiKeyInput = document.getElementById("openaiKeyInput");
 
   const modelSelect = document.getElementById("modelSelect");
+  const maxCostInput = document.getElementById("maxCostInput");
+  const maxTokenInput = document.getElementById("maxTokenInput");
   const deleteKeyBtn = document.getElementById("deleteKeyBtn");
   const settingsMsg = document.getElementById("settingsMsg");
   const apiKeyStatusText = document.getElementById("apiKeyStatusText");
@@ -71,6 +73,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const gKey = geminiKeyInput.value.trim();
     const oKey = openaiKeyInput.value.trim();
     const selectedModel = modelSelect.value;
+    const maxCost = maxCostInput.value ? parseFloat(maxCostInput.value) : null;
+    const maxTokens = maxTokenInput.value ? parseInt(maxTokenInput.value) : null;
 
     showSettingsMsg("Doğrulanıyor...", "info");
 
@@ -79,7 +83,9 @@ document.addEventListener("DOMContentLoaded", () => {
       gemini_api_key: gKey || null,
       gemini_model: provider === "gemini" ? selectedModel : null,
       openai_api_key: oKey || null,
-      openai_model: provider === "openai" ? selectedModel : null
+      openai_model: provider === "openai" ? selectedModel : null,
+      max_estimated_cost_usd: maxCost,
+      max_input_tokens: maxTokens
     };
 
     try {
@@ -113,6 +119,8 @@ document.addEventListener("DOMContentLoaded", () => {
       showSettingsMsg("Tüm ayarlar ve API anahtarları silindi.", "info");
       geminiKeyInput.value = "";
       openaiKeyInput.value = "";
+      maxCostInput.value = "";
+      maxTokenInput.value = "";
     } catch (err) {
       showSettingsMsg("Silme hatası oluştu.", "error");
     }
@@ -124,6 +132,9 @@ document.addEventListener("DOMContentLoaded", () => {
       const data = await resp.json();
       providerSelect.value = data.provider || "gemini";
       updateProviderKeyVisibility();
+
+      if (data.max_estimated_cost_usd) maxCostInput.value = data.max_estimated_cost_usd;
+      if (data.max_input_tokens) maxTokenInput.value = data.max_input_tokens;
 
       if (data.provider === "gemini" && data.gemini_configured) {
         apiKeyStatusText.textContent = `Gemini: ${data.gemini_masked_key} (${data.gemini_model})`;
@@ -243,6 +254,33 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("confidenceBadge").textContent = `Analiz Güveni: %${report.analysis_confidence_score}`;
     document.getElementById("datasetTitleText").textContent = report.dataset_id;
     document.getElementById("summaryText").textContent = report.summary_explanation;
+
+    // Telemetry Summary Card
+    const usage = report.llm_usage || {};
+    const statusBadge = document.getElementById("telemetryStatusBadge");
+    const uStatus = usage.usage_status || "TAHMİNİ";
+    statusBadge.textContent = uStatus;
+    if (uStatus === "GERÇEK") {
+      statusBadge.className = "px-3 py-1 rounded-full text-xs font-bold uppercase bg-emerald-950 text-emerald-300 border border-emerald-800";
+    } else if (uStatus === "DOĞRULANAMADI" || uStatus.includes("LİMİTİ")) {
+      statusBadge.className = "px-3 py-1 rounded-full text-xs font-bold uppercase bg-red-950 text-red-300 border border-red-800";
+    } else {
+      statusBadge.className = "px-3 py-1 rounded-full text-xs font-bold uppercase bg-amber-950 text-amber-300 border border-amber-800";
+    }
+
+    document.getElementById("telemetryModelText").textContent = `${(usage.provider || 'gemini').toUpperCase()} (${usage.model || ''})`;
+    document.getElementById("telemetryCallsText").textContent = usage.api_call_count || 0;
+
+    const inTokens = usage.actual_input_tokens !== undefined && usage.actual_input_tokens !== null ? usage.actual_input_tokens : usage.estimated_input_tokens;
+    const outTokens = usage.actual_output_tokens !== undefined && usage.actual_output_tokens !== null ? usage.actual_output_tokens : usage.estimated_output_tokens;
+    const totTokens = usage.actual_total_tokens !== undefined && usage.actual_total_tokens !== null ? usage.actual_total_tokens : usage.estimated_total_tokens;
+    const cost = usage.actual_cost_usd !== undefined && usage.actual_cost_usd !== null ? usage.actual_cost_usd : usage.estimated_cost_usd;
+
+    document.getElementById("telemetryInTokenText").textContent = inTokens ? inTokens.toLocaleString() : "0";
+    document.getElementById("telemetryOutTokenText").textContent = outTokens ? outTokens.toLocaleString() : "0";
+    document.getElementById("telemetryTotTokenText").textContent = totTokens ? totTokens.toLocaleString() : "0";
+    document.getElementById("telemetryCostText").textContent = cost !== null && cost !== undefined ? `$${cost.toFixed(6)} USD` : "Bilinmiyor";
+    document.getElementById("telemetryFreeTierText").textContent = usage.free_tier_status ? `Free Tier Durumu: ${usage.free_tier_status}` : "";
 
     // Grid stats
     document.getElementById("primaryLangText").textContent = report.primary_language;

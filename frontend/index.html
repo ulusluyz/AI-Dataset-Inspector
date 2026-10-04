@@ -44,11 +44,11 @@
     <div class="bg-slate-800/60 border border-slate-700/60 rounded-2xl p-6 md:p-8 shadow-2xl relative overflow-hidden backdrop-blur">
       <div class="max-w-3xl space-y-4">
         <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
-          <i class="fa-solid fa-shield-halved mr-1.5"></i> Google Gemini & OpenAI Destekli Remote Analiz Engine
+          <i class="fa-solid fa-shield-halved mr-1.5"></i> Token Telemetrisi & Bütçe Kontrollü Remote Engine
         </span>
         <h2 class="text-3xl font-extrabold text-white tracking-tight">Dataset'i İndirmeden Önce Tam Kapsamlı İnceleyin</h2>
         <p class="text-slate-300 text-sm md:text-base leading-relaxed">
-          Hugging Face üzerindeki dataset bağlantısını girin. Ajan verisetinin tamamını bilgisayarınıza indirmeden uzaktan analiz etsin, kaliteyi sınıflandırsın ve bilinçli karar versin.
+          Hugging Face üzerindeki dataset bağlantısını girin. Ajan verisetinin tamamını bilgisayarınıza indirmeden uzaktan analiz etsin, kaliteyi sınıflandırsın ve maliyet bilinciyle karar versin.
         </p>
       </div>
 
@@ -137,6 +137,46 @@
         </div>
       </div>
 
+      <!-- LLM Telemetry Summary Card -->
+      <div class="bg-slate-800/90 border border-slate-700 rounded-2xl p-6 shadow-xl space-y-4">
+        <div class="flex items-center justify-between border-b border-slate-700 pb-3">
+          <h4 class="text-md font-bold text-white flex items-center space-x-2">
+            <i class="fa-solid fa-coins text-amber-400"></i>
+            <span>API KULLANIM VE MALİYET ÖZETİ</span>
+          </h4>
+          <span id="telemetryStatusBadge" class="px-3 py-1 rounded-full text-xs font-bold uppercase bg-indigo-950 text-indigo-300 border border-indigo-800">
+            GERÇEK KULLANIM
+          </span>
+        </div>
+        <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-4 text-sm">
+          <div>
+            <span class="block text-xs text-slate-400">Sağlayıcı / Model</span>
+            <span id="telemetryModelText" class="font-semibold text-white">GEMINI (2.5-flash)</span>
+          </div>
+          <div>
+            <span class="block text-xs text-slate-400">API Çağrısı</span>
+            <span id="telemetryCallsText" class="font-semibold text-white">1</span>
+          </div>
+          <div>
+            <span class="block text-xs text-slate-400">Input Token</span>
+            <span id="telemetryInTokenText" class="font-semibold text-white">18,420</span>
+          </div>
+          <div>
+            <span class="block text-xs text-slate-400">Output Token</span>
+            <span id="telemetryOutTokenText" class="font-semibold text-white">2,000</span>
+          </div>
+          <div>
+            <span class="block text-xs text-slate-400">Toplam Token</span>
+            <span id="telemetryTotTokenText" class="font-semibold text-white">20,420</span>
+          </div>
+          <div>
+            <span class="block text-xs text-slate-400">Tahmini/Gerçek Maliyet</span>
+            <span id="telemetryCostText" class="font-semibold text-amber-400">$0.0015 USD</span>
+          </div>
+        </div>
+        <p id="telemetryFreeTierText" class="text-xs text-slate-400 italic border-t border-slate-700/60 pt-2"></p>
+      </div>
+
       <!-- Detailed Analysis Grid -->
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
 
@@ -221,7 +261,7 @@
       <div class="flex justify-between items-center border-b border-slate-700 pb-3">
         <h3 class="text-lg font-bold text-white flex items-center space-x-2">
           <i class="fa-solid fa-sliders text-emerald-400"></i>
-          <span>AI Sağlayıcısı Yapılandırması</span>
+          <span>AI Sağlayıcısı & Bütçe Yapılandırması</span>
         </h3>
         <button id="closeSettingsBtn" class="text-slate-400 hover:text-white transition">
           <i class="fa-solid fa-xmark text-xl"></i>
@@ -257,6 +297,20 @@
           <select id="modelSelect" class="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm">
             <!-- Dynamically populated -->
           </select>
+        </div>
+
+        <!-- Budget & Token Limits -->
+        <div class="grid grid-cols-2 gap-3 pt-2 border-t border-slate-700/60">
+          <div class="space-y-1">
+            <label class="block text-xs font-semibold text-slate-300 uppercase">Maks. Maliyet ($ USD)</label>
+            <input type="number" step="0.001" id="maxCostInput" placeholder="Örn: 0.05"
+              class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white placeholder-slate-500 text-xs">
+          </div>
+          <div class="space-y-1">
+            <label class="block text-xs font-semibold text-slate-300 uppercase">Maks. Input Token</label>
+            <input type="number" id="maxTokenInput" placeholder="Örn: 25000"
+              class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white placeholder-slate-500 text-xs">
+          </div>
         </div>
 
         <div id="settingsMsg" class="hidden text-xs font-medium p-3 rounded-lg"></div>

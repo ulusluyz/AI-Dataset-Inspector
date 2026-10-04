@@ -3,6 +3,7 @@ from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, Field
 from backend.inspector.hf_inspector import DatasetMetadata, SampleResult
 from backend.analyzer.deterministic_analyzer import DeterministicMetrics
+from backend.telemetry.models import LLMUsageSummary, LLMCallUsage
 
 class LLMSuitability(BaseModel):
     pretraining: str = Field(description="Çok uygun / Uygun / Kısmen uygun / Uygun değil")
@@ -39,6 +40,7 @@ class SemanticAnalysisReport(BaseModel):
     summary_explanation: str
     llm_suitability: LLMSuitability
     findings_evidence: List[Dict[str, str]]
+    llm_usage: Optional[LLMUsageSummary] = None
 
 SYSTEM_PROMPT_COMMON = """
 Sen uzman bir AI Dataset ve Veri Kalitesi Denetçisisin.
@@ -56,7 +58,6 @@ Sana Hugging Face üzerindeki bir verisetinin deterministik analiz sonuçları, 
 class BaseLLMProvider(ABC):
     @abstractmethod
     def list_models(self) -> List[str]:
-        """Lists available models for this provider."""
         pass
 
     @abstractmethod
@@ -66,7 +67,6 @@ class BaseLLMProvider(ABC):
         sample_result: SampleResult,
         metrics: DeterministicMetrics
     ) -> SemanticAnalysisReport:
-        """Analyzes dataset and returns a normalized SemanticAnalysisReport."""
         pass
 
     def build_fallback_report(
@@ -76,12 +76,21 @@ class BaseLLMProvider(ABC):
         metrics: DeterministicMetrics,
         provider_name: str,
         model_name: str,
-        error_msg: str
+        error_msg: str,
+        usage_summary: Optional[LLMUsageSummary] = None
     ) -> SemanticAnalysisReport:
         confidence = 50 if sample_result.sampled_rows_count > 0 else 20
         combined_evidence = metrics.evidence_samples + [
             {"bulgu": f"{provider_name.capitalize()} analizi yedek Moda geçti", "split": "sistem", "ornek": f"Hata: {error_msg[:150]}"}
         ]
+
+        if usage_summary is None:
+            usage_summary = LLMUsageSummary(
+                provider=provider_name,
+                model=model_name,
+                api_call_count=1,
+                usage_status="DOĞRULANAMADI"
+            )
 
         return SemanticAnalysisReport(
             dataset_id=metadata.dataset_id,
@@ -116,5 +125,6 @@ class BaseLLMProvider(ABC):
                 qa_training="Kısmen uygun",
                 explanation="Deterministik analize göre temel değerlendirme yapılmıştır."
             ),
-            findings_evidence=combined_evidence
+            findings_evidence=combined_evidence,
+            llm_usage=usage_summary
         )

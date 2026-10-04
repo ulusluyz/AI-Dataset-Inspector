@@ -49,5 +49,5 @@ def test_gemini_provider_fallback():
         report = provider.analyze_dataset(metadata, sample_res, metrics)
         assert report.llm_provider == "gemini"
         assert report.llm_model == "gemini-2.5-flash"
-        assert "RESOURCE_EXHAUSTED" in report.semantic_analysis_status
+        assert "429" in report.semantic_analysis_status or "istek limiti" in report.semantic_analysis_status
         assert report.download_recommendation in ["İNDİR", "DİKKAT", "İNDİRME"]

@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 from backend.config import config
 from backend.security.secret_store import secret_store
+from backend.security.sanitizer import sanitize_json_payload, sanitize_error_message
 from backend.security.url_validator import validate_and_parse_dataset_url, URLValidationError
 from backend.inspector.hf_inspector import HFInspector
 from backend.analyzer.deterministic_analyzer import DeterministicAnalyzer
@@ -20,7 +21,7 @@ logger = logging.getLogger("ai_dataset_inspector")
 app = FastAPI(
     title="AI Dataset Inspector",
     description="Hugging Face Datasetlerini Uzaktan İnceleyen Güvenli Denetim Uygulaması",
-    version="2.0.0"
+    version="2.1.0"
 )
 
 # Request / Response Schemas
@@ -30,6 +31,8 @@ class SettingsRequest(BaseModel):
     gemini_model: Optional[str] = "gemini-2.5-flash"
     openai_api_key: Optional[str] = None
     openai_model: Optional[str] = "gpt-4o-mini"
+    max_estimated_cost_usd: Optional[float] = None
+    max_input_tokens: Optional[int] = None
 
 class SettingsResponse(BaseModel):
     provider: str = "gemini"
@@ -39,8 +42,10 @@ class SettingsResponse(BaseModel):
     openai_configured: bool = False
     openai_masked_key: Optional[str] = None
     openai_model: str = "gpt-4o-mini"
+    max_estimated_cost_usd: Optional[float] = None
+    max_input_tokens: Optional[int] = None
 
-# In-memory storage for generated reports (report_id -> report_dict)
+# In-memory storage for generated reports
 analysis_reports_cache: Dict[str, Dict[str, Any]] = {}
 
 @app.get("/api/settings", response_model=SettingsResponse)
@@ -57,7 +62,9 @@ def get_settings():
         gemini_model=settings.get("gemini_model") or "gemini-2.5-flash",
         openai_configured=bool(o_key),
         openai_masked_key=secret_store.get_masked_key("openai"),
-        openai_model=settings.get("openai_model") or "gpt-4o-mini"
+        openai_model=settings.get("openai_model") or "gpt-4o-mini",
+        max_estimated_cost_usd=settings.get("max_estimated_cost_usd"),
+        max_input_tokens=settings.get("max_input_tokens")
     )
 
 @app.post("/api/settings")
@@ -72,22 +79,28 @@ def update_settings(req: SettingsRequest):
             raise HTTPException(status_code=400, detail="Lütfen geçerli bir Google Gemini API anahtarı girin.")
         model = req.gemini_model.strip() if req.gemini_model else "gemini-2.5-flash"
 
-        # Validate with Gemini
         try:
             llm_provider = LLMProviderFactory.get_provider("gemini", api_key=key, model_name=model)
             avail_models = llm_provider.list_models()
             selected_model = model if model in avail_models else (avail_models[0] if avail_models else "gemini-2.5-flash")
-            secret_store.save_settings(provider="gemini", gemini_api_key=key, gemini_model=selected_model)
+            secret_store.save_settings(
+                provider="gemini",
+                gemini_api_key=key,
+                gemini_model=selected_model,
+                max_estimated_cost_usd=req.max_estimated_cost_usd,
+                max_input_tokens=req.max_input_tokens
+            )
 
             return {
                 "success": True,
-                "message": "Google Gemini API anahtarı başarıyla doğrulandı ve kaydedildi.",
+                "message": "Google Gemini API anahtarı ve bütçe ayarları başarıyla kaydedildi.",
                 "provider": "gemini",
                 "available_models": avail_models,
                 "selected_model": selected_model
             }
         except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Gemini API anahtarı doğrulanamadı: {str(e)}")
+            safe_err = sanitize_error_message(str(e))
+            raise HTTPException(status_code=400, detail=f"Gemini API anahtarı doğrulanamadı: {safe_err}")
 
     else: # openai
         key = req.openai_api_key.strip() if req.openai_api_key else secret_store.get_settings().get("openai_api_key")
@@ -95,22 +108,28 @@ def update_settings(req: SettingsRequest):
             raise HTTPException(status_code=400, detail="Geçersiz OpenAI API anahtarı formatı. 'sk-' ile başlamalıdır.")
         model = req.openai_model.strip() if req.openai_model else "gpt-4o-mini"
 
-        # Validate with OpenAI
         try:
             llm_provider = LLMProviderFactory.get_provider("openai", api_key=key, model_name=model)
             avail_models = llm_provider.list_models()
             selected_model = model if model in avail_models else (avail_models[0] if avail_models else "gpt-4o-mini")
-            secret_store.save_settings(provider="openai", openai_api_key=key, openai_model=selected_model)
+            secret_store.save_settings(
+                provider="openai",
+                openai_api_key=key,
+                openai_model=selected_model,
+                max_estimated_cost_usd=req.max_estimated_cost_usd,
+                max_input_tokens=req.max_input_tokens
+            )
 
             return {
                 "success": True,
-                "message": "OpenAI API anahtarı başarıyla doğrulandı ve kaydedildi.",
+                "message": "OpenAI API anahtarı ve bütçe ayarları başarıyla kaydedildi.",
                 "provider": "openai",
                 "available_models": avail_models,
                 "selected_model": selected_model
             }
         except Exception as e:
-            raise HTTPException(status_code=400, detail=f"OpenAI API anahtarı doğrulanamadı: {str(e)}")
+            safe_err = sanitize_error_message(str(e))
+            raise HTTPException(status_code=400, detail=f"OpenAI API anahtarı doğrulanamadı: {safe_err}")
 
 @app.delete("/api/settings")
 def delete_settings():
@@ -126,14 +145,14 @@ def get_available_models(provider: str = Query("gemini")):
         llm_provider = LLMProviderFactory.get_provider(provider_name=p_name)
         models = llm_provider.list_models()
         return {"models": models}
-    except Exception as e:
+    except Exception:
         if provider.lower() == "openai":
             return {"models": ["gpt-4o-mini", "gpt-4o"]}
         return {"models": ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-1.5-flash"]}
 
 @app.get("/api/analyze/stream")
 async def analyze_dataset_stream(dataset_url: str = Query(...)):
-    """Runs end-to-end dataset inspector agent using active LLM provider with SSE progress updates."""
+    """Runs end-to-end dataset inspector agent with token usage telemetry and SSE progress updates."""
     settings = secret_store.get_settings()
     active_p = settings.get("provider", "gemini").lower()
     active_key = settings.get(f"{active_p}_api_key")
@@ -177,16 +196,17 @@ async def analyze_dataset_stream(dataset_url: str = Query(...)):
             metrics = det_analyzer.analyze(sample_result.sampled_rows)
             await asyncio.sleep(0.2)
 
-            # Step 5: Active Provider Semantic Analysis
+            # Step 5: Active Provider Semantic Analysis & Telemetry
             p_label = "Google Gemini" if active_p == "gemini" else "OpenAI"
-            yield f"data: {json.dumps({'type': 'progress', 'step': 5, 'message': f'✓ {p_label} semantik analizi ve LLM eğitim uygunluğu değerlendiriliyor...'}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'progress', 'step': 5, 'message': f'✓ {p_label} semantik analizi ve LLM token telemetrisi değerlendiriliyor...'}, ensure_ascii=False)}\n\n"
             llm_provider = LLMProviderFactory.get_provider(active_p)
             report: SemanticAnalysisReport = await asyncio.to_thread(llm_provider.analyze_dataset, metadata, sample_result, metrics)
             await asyncio.sleep(0.2)
 
-            # Cache report for download endpoints
-            report_dict = report.model_dump()
+            # Defense-in-depth sanitization on report payload
+            report_dict = sanitize_json_payload(report.model_dump())
             report_id = parsed_url.dataset_id.replace("/", "_")
+
             analysis_reports_cache[report_id] = {
                 "report": report_dict,
                 "metadata": metadata.model_dump(),
@@ -194,7 +214,7 @@ async def analyze_dataset_stream(dataset_url: str = Query(...)):
                 "metrics": metrics.model_dump()
             }
 
-            yield f"data: {json.dumps({'type': 'progress', 'step': 6, 'message': '✓ Analiz tamamlandı. Rapor oluşturuldu.'}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'progress', 'step': 6, 'message': '✓ Analiz tamamlandı. Rapor ve LLM kullanım telemetrisi oluşturuldu.'}, ensure_ascii=False)}\n\n"
             yield f"data: {json.dumps({'type': 'complete', 'report_id': report_id, 'report': report_dict}, ensure_ascii=False)}\n\n"
 
         except FileNotFoundError as e:
@@ -202,8 +222,9 @@ async def analyze_dataset_stream(dataset_url: str = Query(...)):
         except PermissionError as e:
             yield f"data: {json.dumps({'type': 'error', 'message': f'Erişim Engellendi: {str(e)}'}, ensure_ascii=False)}\n\n"
         except Exception as e:
+            safe_err = sanitize_error_message(str(e))
             logger.exception("Analysis streaming error")
-            yield f"data: {json.dumps({'type': 'error', 'message': f'Analiz sırasında hata oluştu: {str(e)}'}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'error', 'message': f'Analiz sırasında hata oluştu: {safe_err}'}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
@@ -213,8 +234,9 @@ def download_report_json(report_id: str):
         raise HTTPException(status_code=404, detail="Rapor bulunamadı.")
 
     data = analysis_reports_cache[report_id]
+    sanitized_data = sanitize_json_payload(data)
     return JSONResponse(
-        content=data,
+        content=sanitized_data,
         headers={"Content-Disposition": f"attachment; filename=report_{report_id}.json"}
     )
 
@@ -223,9 +245,10 @@ def download_report_markdown(report_id: str):
     if report_id not in analysis_reports_cache:
         raise HTTPException(status_code=404, detail="Rapor bulunamadı.")
 
-    data = analysis_reports_cache[report_id]
+    data = sanitize_json_payload(analysis_reports_cache[report_id])
     rep = data["report"]
     metr = data["metrics"]
+    usage = rep.get("llm_usage") or {}
 
     md_content = f"""# DATASET ANALİZ RAPORU
 
@@ -239,7 +262,20 @@ def download_report_markdown(report_id: str):
 
 ---
 
-## 1. TEMEL VERİ BİLGİLERİ
+## 1. LLM TOKEN KULLANIMI VE MALİYET ÖZETİ
+
+- **Sağlayıcı / Model:** `{usage.get('provider', 'gemini').upper()}` / `{usage.get('model', '')}`
+- **API Çağrı Sayısı:** {usage.get('api_call_count', 0)}
+- **Kullanım Durumu:** {usage.get('usage_status', 'TAHMİNİ')}
+- **Tahmini Input / Output / Toplam Token:** {usage.get('estimated_input_tokens', 0):,} / {usage.get('estimated_output_tokens', 0):,} / {usage.get('estimated_total_tokens', 0):,}
+- **Gerçek Input / Output / Toplam Token:** {usage.get('actual_input_tokens') or 'Bildirilmedi'} / {usage.get('actual_output_tokens') or 'Bildirilmedi'} / {usage.get('actual_total_tokens') or 'Bildirilmedi'}
+- **Tahmini Maliyet:** ${usage.get('estimated_cost_usd') or 0.0:.6f} USD
+- **Gerçek Maliyet:** ${usage.get('actual_cost_usd') or 0.0:.6f} USD
+- **Free Tier Durumu:** {usage.get('free_tier_status', 'Bilinmiyor')}
+
+---
+
+## 2. TEMEL VERİ BİLGİLERİ
 
 - **Ana Dil:** {rep['primary_language']}
 - **Dil Dağılımı:** {json.dumps(rep['language_distribution'], ensure_ascii=False)}
@@ -256,7 +292,7 @@ def download_report_markdown(report_id: str):
 
 ---
 
-## 2. DETERMINİSTİK ÖLÇÜMLER
+## 3. DETERMINİSTİK ÖLÇÜMLER
 
 - **Toplam İncelenen Kayıt:** {metr['total_sampled']}
 - **Exact Duplicate Sayısı / Oranı:** {metr['exact_duplicates_count']} (%{metr['exact_duplicate_ratio']*100:.1f})
@@ -266,7 +302,7 @@ def download_report_markdown(report_id: str):
 
 ---
 
-## 3. LLM EĞİTİM UYGUNLUĞU
+## 4. LLM EĞİTİM UYGUNLUĞU
 
 | Eğitim Türü | Sonuç |
 |---|---|
@@ -280,14 +316,15 @@ def download_report_markdown(report_id: str):
 
 ---
 
-## 4. DETAYLI AÇIKLAMA VE ÖNERİ
+## 5. DETAYLI AÇIKLAMA VE ÖNERİ
 
 {rep['summary_explanation']}
 
 ### Nihai Karar: **{rep['download_recommendation']}**
 """
+    clean_md = sanitize_error_message(md_content)
     return Response(
-        content=md_content,
+        content=clean_md,
         media_type="text/markdown",
         headers={"Content-Disposition": f"attachment; filename=report_{report_id}.md"}
     )
