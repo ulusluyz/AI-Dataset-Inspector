@@ -12,39 +12,66 @@ class SecretStore:
 
     def _ensure_dir(self):
         DATA_DIR.mkdir(parents=True, exist_ok=True)
-        # Restrict directory permissions to owner only (rwx------)
         try:
             os.chmod(DATA_DIR, stat.S_IRWXU)
         except Exception:
             pass
 
-    def save_settings(self, api_key: str, model: str = "gpt-4o-mini") -> None:
-        """Saves API key and selected model with strict file permissions."""
+    def save_settings(
+        self,
+        provider: str = "gemini",
+        gemini_api_key: Optional[str] = None,
+        gemini_model: str = "gemini-2.5-flash",
+        openai_api_key: Optional[str] = None,
+        openai_model: str = "gpt-4o-mini"
+    ) -> None:
+        """Saves provider settings and keys with strict file permissions."""
+        existing = self.get_settings()
+
+        # Preserve existing key if not overwritten
+        g_key = gemini_api_key.strip() if gemini_api_key is not None else existing.get("gemini_api_key")
+        o_key = openai_api_key.strip() if openai_api_key is not None else existing.get("openai_api_key")
+
         data = {
-            "openai_api_key": api_key.strip(),
-            "openai_model": model.strip()
+            "provider": provider.strip().lower(),
+            "gemini_api_key": g_key,
+            "gemini_model": gemini_model.strip() if gemini_model else "gemini-2.5-flash",
+            "openai_api_key": o_key,
+            "openai_model": openai_model.strip() if openai_model else "gpt-4o-mini"
         }
+
         with open(self.key_file, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
 
         try:
-            os.chmod(self.key_file, stat.S_IRUSR | stat.S_IWUSR) # 0600
+            os.chmod(self.key_file, stat.S_IRUSR | stat.S_IWUSR)  # 0600
         except Exception:
             pass
 
-    def get_settings(self) -> Dict[str, Optional[str]]:
-        """Returns stored settings without leaking key in unmasked logs."""
+    def get_settings(self) -> Dict[str, Any]:
+        """Returns stored provider settings."""
+        default_dict = {
+            "provider": "gemini",
+            "gemini_api_key": None,
+            "gemini_model": "gemini-2.5-flash",
+            "openai_api_key": None,
+            "openai_model": "gpt-4o-mini"
+        }
         if not self.key_file.exists():
-            return {"openai_api_key": None, "openai_model": "gpt-4o-mini"}
+            return default_dict
+
         try:
             with open(self.key_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 return {
+                    "provider": data.get("provider", "gemini"),
+                    "gemini_api_key": data.get("gemini_api_key"),
+                    "gemini_model": data.get("gemini_model", "gemini-2.5-flash"),
                     "openai_api_key": data.get("openai_api_key"),
                     "openai_model": data.get("openai_model", "gpt-4o-mini")
                 }
         except Exception:
-            return {"openai_api_key": None, "openai_model": "gpt-4o-mini"}
+            return default_dict
 
     def delete_settings(self) -> bool:
         """Deletes key file if exists."""
@@ -56,10 +83,16 @@ class SecretStore:
                 return False
         return False
 
-    def get_masked_key(self) -> Optional[str]:
-        """Returns masked API key for display in settings UI."""
+    def get_masked_key(self, provider: Optional[str] = None) -> Optional[str]:
+        """Returns masked API key for display for given or active provider."""
         settings = self.get_settings()
-        key = settings.get("openai_api_key")
+        active_p = (provider or settings.get("provider") or "gemini").lower()
+
+        if active_p == "gemini":
+            key = settings.get("gemini_api_key")
+        else:
+            key = settings.get("openai_api_key")
+
         if not key:
             return None
         if len(key) <= 8:

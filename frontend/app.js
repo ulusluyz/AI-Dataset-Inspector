@@ -4,7 +4,13 @@ document.addEventListener("DOMContentLoaded", () => {
   const closeSettingsBtn = document.getElementById("closeSettingsBtn");
   const settingsModal = document.getElementById("settingsModal");
   const settingsForm = document.getElementById("settingsForm");
-  const apiKeyInput = document.getElementById("apiKeyInput");
+
+  const providerSelect = document.getElementById("providerSelect");
+  const geminiKeyGroup = document.getElementById("geminiKeyGroup");
+  const geminiKeyInput = document.getElementById("geminiKeyInput");
+  const openaiKeyGroup = document.getElementById("openaiKeyGroup");
+  const openaiKeyInput = document.getElementById("openaiKeyInput");
+
   const modelSelect = document.getElementById("modelSelect");
   const deleteKeyBtn = document.getElementById("deleteKeyBtn");
   const settingsMsg = document.getElementById("settingsMsg");
@@ -30,10 +36,28 @@ document.addEventListener("DOMContentLoaded", () => {
   // Initialize Settings
   checkSettingsStatus();
 
+  // Provider toggle visibility listener
+  providerSelect.addEventListener("change", () => {
+    updateProviderKeyVisibility();
+    fetchAvailableModels(providerSelect.value);
+  });
+
+  function updateProviderKeyVisibility() {
+    const selected = providerSelect.value;
+    if (selected === "openai") {
+      openaiKeyGroup.classList.remove("hidden");
+      geminiKeyGroup.classList.add("hidden");
+    } else {
+      geminiKeyGroup.classList.remove("hidden");
+      openaiKeyGroup.classList.add("hidden");
+    }
+  }
+
   // Modal Listeners
   openSettingsBtn.addEventListener("click", () => {
     settingsModal.classList.remove("hidden");
-    fetchAvailableModels();
+    updateProviderKeyVisibility();
+    fetchAvailableModels(providerSelect.value);
   });
 
   closeSettingsBtn.addEventListener("click", () => {
@@ -43,22 +67,33 @@ document.addEventListener("DOMContentLoaded", () => {
   // Save Settings
   settingsForm.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const apiKey = apiKeyInput.value.trim();
+    const provider = providerSelect.value;
+    const gKey = geminiKeyInput.value.trim();
+    const oKey = openaiKeyInput.value.trim();
     const selectedModel = modelSelect.value;
 
     showSettingsMsg("Doğrulanıyor...", "info");
+
+    const payload = {
+      provider: provider,
+      gemini_api_key: gKey || null,
+      gemini_model: provider === "gemini" ? selectedModel : null,
+      openai_api_key: oKey || null,
+      openai_model: provider === "openai" ? selectedModel : null
+    };
 
     try {
       const resp = await fetch("/api/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ openai_api_key: apiKey, openai_model: selectedModel })
+        body: JSON.stringify(payload)
       });
       const data = await resp.json();
 
       if (resp.ok && data.success) {
-        showSettingsMsg("✓ Başarıyla doğrulandı ve kaydedildi.", "success");
-        apiKeyInput.value = "";
+        showSettingsMsg(`✓ ${data.message}`, "success");
+        geminiKeyInput.value = "";
+        openaiKeyInput.value = "";
         checkSettingsStatus();
         setTimeout(() => settingsModal.classList.add("hidden"), 1200);
       } else {
@@ -71,12 +106,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Delete Settings
   deleteKeyBtn.addEventListener("click", async () => {
-    if (!confirm("API anahtarını silmek istediğinize emin misiniz?")) return;
+    if (!confirm("Tüm AI Sağlayıcısı ve API anahtarı ayarlarını silmek istediğinize emin misiniz?")) return;
     try {
       await fetch("/api/settings", { method: "DELETE" });
       checkSettingsStatus();
-      showSettingsMsg("API anahtarı silindi.", "info");
-      apiKeyInput.value = "";
+      showSettingsMsg("Tüm ayarlar ve API anahtarları silindi.", "info");
+      geminiKeyInput.value = "";
+      openaiKeyInput.value = "";
     } catch (err) {
       showSettingsMsg("Silme hatası oluştu.", "error");
     }
@@ -86,23 +122,27 @@ document.addEventListener("DOMContentLoaded", () => {
     try {
       const resp = await fetch("/api/settings");
       const data = await resp.json();
-      if (data.configured) {
-        apiKeyStatusText.textContent = `API Key: ${data.masked_key} (${data.openai_model})`;
-        openSettingsBtn.classList.remove("border-slate-700");
-        openSettingsBtn.classList.add("border-emerald-500/50", "text-emerald-400");
+      providerSelect.value = data.provider || "gemini";
+      updateProviderKeyVisibility();
+
+      if (data.provider === "gemini" && data.gemini_configured) {
+        apiKeyStatusText.textContent = `Gemini: ${data.gemini_masked_key} (${data.gemini_model})`;
+        openSettingsBtn.className = "flex items-center space-x-2 bg-slate-800 hover:bg-slate-700 px-4 py-2 rounded-lg border border-emerald-500/50 text-emerald-400 text-sm font-medium transition";
+      } else if (data.provider === "openai" && data.openai_configured) {
+        apiKeyStatusText.textContent = `OpenAI: ${data.openai_masked_key} (${data.openai_model})`;
+        openSettingsBtn.className = "flex items-center space-x-2 bg-slate-800 hover:bg-slate-700 px-4 py-2 rounded-lg border border-emerald-500/50 text-emerald-400 text-sm font-medium transition";
       } else {
-        apiKeyStatusText.textContent = "API Key Yapılandır";
-        openSettingsBtn.classList.remove("border-emerald-500/50", "text-emerald-400");
-        openSettingsBtn.classList.add("border-amber-500/50", "text-amber-400");
+        apiKeyStatusText.textContent = "AI Sağlayıcısı Yapılandır";
+        openSettingsBtn.className = "flex items-center space-x-2 bg-slate-800 hover:bg-slate-700 px-4 py-2 rounded-lg border border-amber-500/50 text-amber-400 text-sm font-medium transition";
       }
     } catch (err) {
       apiKeyStatusText.textContent = "Ayarlar Yüklenemedi";
     }
   }
 
-  async function fetchAvailableModels() {
+  async function fetchAvailableModels(providerName) {
     try {
-      const resp = await fetch("/api/models");
+      const resp = await fetch(`/api/models?provider=${providerName}`);
       const data = await resp.json();
       if (data.models && data.models.length > 0) {
         modelSelect.innerHTML = "";
@@ -140,7 +180,6 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   function handleStartAnalysis(datasetUrl) {
-    // Reset UI
     errorCard.classList.add("hidden");
     resultsCard.classList.add("hidden");
     progressCard.classList.remove("hidden");
@@ -198,8 +237,9 @@ document.addEventListener("DOMContentLoaded", () => {
       decisionBadge.classList.add("badge-indirme");
     }
 
-    // Quality & Confidence
+    // Quality, Provider & Confidence
     document.getElementById("qualityBadge").textContent = `Data Quality: ${report.data_quality}`;
+    document.getElementById("providerBadge").textContent = `Provider: ${(report.llm_provider || 'gemini').toUpperCase()} (${report.llm_model || ''})`;
     document.getElementById("confidenceBadge").textContent = `Analiz Güveni: %${report.analysis_confidence_score}`;
     document.getElementById("datasetTitleText").textContent = report.dataset_id;
     document.getElementById("summaryText").textContent = report.summary_explanation;

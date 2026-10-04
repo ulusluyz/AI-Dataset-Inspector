@@ -21,7 +21,7 @@
     <div class="max-w-6xl mx-auto px-4 py-4 flex justify-between items-center">
       <div class="flex items-center space-x-3">
         <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-500 to-purple-500 flex items-center justify-center font-bold text-white text-xl shadow-lg shadow-indigo-500/20">
-          <i class="fa-solid me-0 fa-magnifying-glass-chart"></i>
+          <i class="fa-solid fa-magnifying-glass-chart"></i>
         </div>
         <div>
           <h1 class="text-xl font-bold bg-gradient-to-r from-white to-slate-400 bg-clip-text text-transparent">AI Dataset Inspector</h1>
@@ -29,10 +29,10 @@
         </div>
       </div>
 
-      <!-- API Settings Trigger -->
+      <!-- Provider & API Settings Trigger -->
       <button id="openSettingsBtn" class="flex items-center space-x-2 bg-slate-800 hover:bg-slate-700 px-4 py-2 rounded-lg border border-slate-700 text-sm font-medium transition">
-        <i class="fa-solid fa-key text-amber-400"></i>
-        <span id="apiKeyStatusText">API Key Yapılandır</span>
+        <i class="fa-solid fa-robot text-emerald-400"></i>
+        <span id="apiKeyStatusText">AI Sağlayıcısı Yapılandır</span>
       </button>
     </div>
   </header>
@@ -44,7 +44,7 @@
     <div class="bg-slate-800/60 border border-slate-700/60 rounded-2xl p-6 md:p-8 shadow-2xl relative overflow-hidden backdrop-blur">
       <div class="max-w-3xl space-y-4">
         <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
-          <i class="fa-solid fa-shield-halved mr-1.5"></i> Güvenli Remote Analiz Engine
+          <i class="fa-solid fa-shield-halved mr-1.5"></i> Google Gemini & OpenAI Destekli Remote Analiz Engine
         </span>
         <h2 class="text-3xl font-extrabold text-white tracking-tight">Dataset'i İndirmeden Önce Tam Kapsamlı İnceleyin</h2>
         <p class="text-slate-300 text-sm md:text-base leading-relaxed">
@@ -112,6 +112,9 @@
             </span>
             <span id="qualityBadge" class="px-3 py-1 rounded-lg text-xs font-bold uppercase bg-slate-700 text-slate-200 border border-slate-600">
               Data Quality: EXCELLENT
+            </span>
+            <span id="providerBadge" class="px-3 py-1 rounded-lg text-xs font-bold uppercase bg-emerald-950 text-emerald-300 border border-emerald-800">
+              Provider: GEMINI
             </span>
             <span id="confidenceBadge" class="px-3 py-1 rounded-lg text-xs font-bold bg-indigo-950 text-indigo-300 border border-indigo-800">
               Analiz Güveni: %91 (Yüksek)
@@ -217,8 +220,8 @@
     <div class="bg-slate-800 border border-slate-700 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-5">
       <div class="flex justify-between items-center border-b border-slate-700 pb-3">
         <h3 class="text-lg font-bold text-white flex items-center space-x-2">
-          <i class="fa-solid fa-key text-amber-400"></i>
-          <span>OpenAI API Yapılandırması</span>
+          <i class="fa-solid fa-sliders text-emerald-400"></i>
+          <span>AI Sağlayıcısı Yapılandırması</span>
         </h3>
         <button id="closeSettingsBtn" class="text-slate-400 hover:text-white transition">
           <i class="fa-solid fa-xmark text-xl"></i>
@@ -226,18 +229,33 @@
       </div>
 
       <form id="settingsForm" class="space-y-4">
+        <!-- Provider Selection -->
         <div class="space-y-1.5">
-          <label class="block text-xs font-semibold text-slate-300 uppercase">OpenAI API Key</label>
-          <input type="password" id="apiKeyInput" required placeholder="sk-..."
-            class="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500 text-sm">
-          <p class="text-xs text-slate-400">API anahtarı yalnızca sunucuda kısıtlı izinlerle tutulur, frontend'e ve loglara sızdırılmaz.</p>
+          <label class="block text-xs font-semibold text-slate-300 uppercase">AI Sağlayıcısı</label>
+          <select id="providerSelect" class="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm">
+            <option value="gemini">Google Gemini (Varsayılan)</option>
+            <option value="openai">OpenAI</option>
+          </select>
         </div>
 
+        <!-- API Key Inputs -->
+        <div id="geminiKeyGroup" class="space-y-1.5">
+          <label class="block text-xs font-semibold text-slate-300 uppercase">Google Gemini API Key</label>
+          <input type="password" id="geminiKeyInput" placeholder="AIzaSy..."
+            class="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm">
+        </div>
+
+        <div id="openaiKeyGroup" class="space-y-1.5 hidden">
+          <label class="block text-xs font-semibold text-slate-300 uppercase">OpenAI API Key</label>
+          <input type="password" id="openaiKeyInput" placeholder="sk-..."
+            class="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm">
+        </div>
+
+        <!-- Model Selection -->
         <div class="space-y-1.5">
-          <label class="block text-xs font-semibold text-slate-300 uppercase">OpenAI Model Seçimi</label>
-          <select id="modelSelect" class="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-amber-500 text-sm">
-            <option value="gpt-4o-mini">gpt-4o-mini (Önerilen)</option>
-            <option value="gpt-4o">gpt-4o</option>
+          <label class="block text-xs font-semibold text-slate-300 uppercase">Model Seçimi</label>
+          <select id="modelSelect" class="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm">
+            <!-- Dynamically populated -->
           </select>
         </div>
 
@@ -246,9 +264,9 @@
         <div class="flex items-center justify-between pt-2">
           <button type="button" id="deleteKeyBtn" class="text-red-400 hover:text-red-300 text-xs font-semibold flex items-center space-x-1 transition">
             <i class="fa-solid fa-trash"></i>
-            <span>API Key Sil</span>
+            <span>Ayarları Sil</span>
           </button>
-          <button type="submit" id="saveKeyBtn" class="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-5 py-2.5 rounded-xl text-sm transition">
+          <button type="submit" id="saveKeyBtn" class="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-5 py-2.5 rounded-xl text-sm transition">
             DOĞRULA VE KAYDET
           </button>
         </div>

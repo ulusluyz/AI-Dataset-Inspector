@@ -11,6 +11,8 @@ class AppConfig(BaseModel):
     max_sampled_rows: int = 10_000
     default_sample_rows: int = 1_000
     request_timeout: int = 30
-    default_model: str = "gpt-4o-mini"
+    default_provider: str = "gemini"
+    default_gemini_model: str = "gemini-2.5-flash"
+    default_openai_model: str = "gpt-4o-mini"
 
 config = AppConfig()

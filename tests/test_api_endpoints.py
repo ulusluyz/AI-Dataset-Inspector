@@ -9,8 +9,9 @@ def test_get_settings():
     response = client.get("/api/settings")
     assert response.status_code == 200
     json_data = response.json()
-    assert "configured" in json_data
-    assert "openai_model" in json_data
+    assert "provider" in json_data
+    assert "gemini_configured" in json_data
+    assert "openai_configured" in json_data
 
 def test_stream_without_key():
     # Ensure key is cleared
@@ -18,10 +19,10 @@ def test_stream_without_key():
     response = client.get("/api/analyze/stream?dataset_url=https://huggingface.co/datasets/squad/squad")
     assert response.status_code == 200
     text = response.text
-    assert "OpenAI API anahtarı yapılandırılmamış" in text
+    assert "API anahtarı yapılandırılmamış" in text
 
 def test_stream_invalid_url():
-    secret_store.save_settings("sk-fakekeyforunitTest1234567890abcdef")
+    secret_store.save_settings(provider="gemini", gemini_api_key="AIzaSy1234567890abcdefghijklmnopqrstuv")
     response = client.get("/api/analyze/stream?dataset_url=https://google.com/invalid")
     assert response.status_code == 200
     text = response.text

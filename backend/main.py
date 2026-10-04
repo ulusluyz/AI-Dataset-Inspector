@@ -1,7 +1,7 @@
 import json
 import asyncio
 import logging
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from fastapi import FastAPI, HTTPException, Response, Query
 from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -12,24 +12,32 @@ from backend.security.secret_store import secret_store
 from backend.security.url_validator import validate_and_parse_dataset_url, URLValidationError
 from backend.inspector.hf_inspector import HFInspector
 from backend.analyzer.deterministic_analyzer import DeterministicAnalyzer
-from backend.analyzer.gpt_analyzer import GPTAnalyzer, GPTAnalysisReport
+from backend.providers.factory import LLMProviderFactory
+from backend.providers.base_provider import SemanticAnalysisReport
 
 logger = logging.getLogger("ai_dataset_inspector")
 
 app = FastAPI(
     title="AI Dataset Inspector",
     description="Hugging Face Datasetlerini Uzaktan İnceleyen Güvenli Denetim Uygulaması",
-    version="1.0.0"
+    version="2.0.0"
 )
 
 # Request / Response Schemas
 class SettingsRequest(BaseModel):
-    openai_api_key: str
+    provider: str = "gemini"  # gemini / openai
+    gemini_api_key: Optional[str] = None
+    gemini_model: Optional[str] = "gemini-2.5-flash"
+    openai_api_key: Optional[str] = None
     openai_model: Optional[str] = "gpt-4o-mini"
 
 class SettingsResponse(BaseModel):
-    configured: bool
-    masked_key: Optional[str] = None
+    provider: str = "gemini"
+    gemini_configured: bool = False
+    gemini_masked_key: Optional[str] = None
+    gemini_model: str = "gemini-2.5-flash"
+    openai_configured: bool = False
+    openai_masked_key: Optional[str] = None
     openai_model: str = "gpt-4o-mini"
 
 # In-memory storage for generated reports (report_id -> report_dict)
@@ -38,68 +46,105 @@ analysis_reports_cache: Dict[str, Dict[str, Any]] = {}
 @app.get("/api/settings", response_model=SettingsResponse)
 def get_settings():
     settings = secret_store.get_settings()
-    key = settings.get("openai_api_key")
-    model = settings.get("openai_model") or "gpt-4o-mini"
+    p = settings.get("provider", "gemini").lower()
+    g_key = settings.get("gemini_api_key")
+    o_key = settings.get("openai_api_key")
+
     return SettingsResponse(
-        configured=bool(key),
-        masked_key=secret_store.get_masked_key(),
-        openai_model=model
+        provider=p,
+        gemini_configured=bool(g_key),
+        gemini_masked_key=secret_store.get_masked_key("gemini"),
+        gemini_model=settings.get("gemini_model") or "gemini-2.5-flash",
+        openai_configured=bool(o_key),
+        openai_masked_key=secret_store.get_masked_key("openai"),
+        openai_model=settings.get("openai_model") or "gpt-4o-mini"
     )
 
 @app.post("/api/settings")
 def update_settings(req: SettingsRequest):
-    if not req.openai_api_key or not req.openai_api_key.strip().startswith("sk-"):
-        raise HTTPException(status_code=400, detail="Geçersiz OpenAI API anahtarı formatı. 'sk-' ile başlamalıdır.")
+    provider_name = req.provider.strip().lower() if req.provider else "gemini"
+    if provider_name not in ("gemini", "openai"):
+        raise HTTPException(status_code=400, detail="Geçersiz AI Sağlayıcısı. 'gemini' veya 'openai' seçiniz.")
 
-    # Verify API key with OpenAI
-    try:
-        gpt_analyzer = GPTAnalyzer(api_key=req.openai_api_key.strip(), model=req.openai_model)
-        models = gpt_analyzer.list_available_models()
+    if provider_name == "gemini":
+        key = req.gemini_api_key.strip() if req.gemini_api_key else secret_store.get_settings().get("gemini_api_key")
+        if not key:
+            raise HTTPException(status_code=400, detail="Lütfen geçerli bir Google Gemini API anahtarı girin.")
+        model = req.gemini_model.strip() if req.gemini_model else "gemini-2.5-flash"
 
-        selected_model = req.openai_model if req.openai_model in models else (models[0] if models else "gpt-4o-mini")
-        secret_store.save_settings(api_key=req.openai_api_key.strip(), model=selected_model)
+        # Validate with Gemini
+        try:
+            llm_provider = LLMProviderFactory.get_provider("gemini", api_key=key, model_name=model)
+            avail_models = llm_provider.list_models()
+            selected_model = model if model in avail_models else (avail_models[0] if avail_models else "gemini-2.5-flash")
+            secret_store.save_settings(provider="gemini", gemini_api_key=key, gemini_model=selected_model)
 
-        return {
-            "success": True,
-            "message": "OpenAI API anahtarı başarıyla doğrulandı ve kaydedildi.",
-            "available_models": models,
-            "selected_model": selected_model
-        }
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"API anahtarı doğrulanamadı: {str(e)}")
+            return {
+                "success": True,
+                "message": "Google Gemini API anahtarı başarıyla doğrulandı ve kaydedildi.",
+                "provider": "gemini",
+                "available_models": avail_models,
+                "selected_model": selected_model
+            }
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Gemini API anahtarı doğrulanamadı: {str(e)}")
+
+    else: # openai
+        key = req.openai_api_key.strip() if req.openai_api_key else secret_store.get_settings().get("openai_api_key")
+        if not key or not key.startswith("sk-"):
+            raise HTTPException(status_code=400, detail="Geçersiz OpenAI API anahtarı formatı. 'sk-' ile başlamalıdır.")
+        model = req.openai_model.strip() if req.openai_model else "gpt-4o-mini"
+
+        # Validate with OpenAI
+        try:
+            llm_provider = LLMProviderFactory.get_provider("openai", api_key=key, model_name=model)
+            avail_models = llm_provider.list_models()
+            selected_model = model if model in avail_models else (avail_models[0] if avail_models else "gpt-4o-mini")
+            secret_store.save_settings(provider="openai", openai_api_key=key, openai_model=selected_model)
+
+            return {
+                "success": True,
+                "message": "OpenAI API anahtarı başarıyla doğrulandı ve kaydedildi.",
+                "provider": "openai",
+                "available_models": avail_models,
+                "selected_model": selected_model
+            }
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"OpenAI API anahtarı doğrulanamadı: {str(e)}")
 
 @app.delete("/api/settings")
 def delete_settings():
     success = secret_store.delete_settings()
     if success:
-        return {"success": True, "message": "API anahtarı ve ayarlar silindi."}
+        return {"success": True, "message": "API anahtarları ve sağlayıcı ayarları silindi."}
     raise HTTPException(status_code=500, detail="Ayarlar silinirken hata oluştu.")
 
 @app.get("/api/models")
-def get_available_models():
-    settings = secret_store.get_settings()
-    key = settings.get("openai_api_key")
-    if not key:
-        return {"models": ["gpt-4o-mini", "gpt-4o"]}
+def get_available_models(provider: str = Query("gemini")):
     try:
-        analyzer = GPTAnalyzer(api_key=key)
-        models = analyzer.list_available_models()
+        p_name = provider.strip().lower()
+        llm_provider = LLMProviderFactory.get_provider(provider_name=p_name)
+        models = llm_provider.list_models()
         return {"models": models}
-    except Exception:
-        return {"models": ["gpt-4o-mini", "gpt-4o"]}
+    except Exception as e:
+        if provider.lower() == "openai":
+            return {"models": ["gpt-4o-mini", "gpt-4o"]}
+        return {"models": ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-1.5-flash"]}
 
 @app.get("/api/analyze/stream")
 async def analyze_dataset_stream(dataset_url: str = Query(...)):
-    """Runs end-to-end dataset inspector agent with real-time SSE progress updates."""
-    # 1. Validate settings
+    """Runs end-to-end dataset inspector agent using active LLM provider with SSE progress updates."""
     settings = secret_store.get_settings()
-    if not settings.get("openai_api_key"):
-        err_msg = "OpenAI API anahtarı yapılandırılmamış. Lütfen önce Ayarlar bölümünden API anahtarınızı girin."
+    active_p = settings.get("provider", "gemini").lower()
+    active_key = settings.get(f"{active_p}_api_key")
+
+    if not active_key:
+        p_label = "Google Gemini" if active_p == "gemini" else "OpenAI"
+        err_msg = f"{p_label} API anahtarı yapılandırılmamış. Lütfen önce Ayarlar bölümünden API anahtarınızı girin."
         async def err_gen_key():
             yield f"data: {json.dumps({'type': 'error', 'message': err_msg}, ensure_ascii=False)}\n\n"
         return StreamingResponse(err_gen_key(), media_type="text/event-stream")
 
-    # 2. Validate URL
     try:
         parsed_url = validate_and_parse_dataset_url(dataset_url)
     except URLValidationError as err:
@@ -121,7 +166,7 @@ async def analyze_dataset_stream(dataset_url: str = Query(...)):
             await asyncio.sleep(0.2)
 
             # Step 3: Remote sampling
-            yield f"data: {json.dumps({'type': 'progress', 'step': 3, 'message': f'✓ Splitler ve schema inceleniyor. Uzaktan temsil edici örnekleme başlatıldı...'}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'progress', 'step': 3, 'message': '✓ Splitler ve schema inceleniyor. Uzaktan temsil edici örnekleme başlatıldı...'}, ensure_ascii=False)}\n\n"
             sample_result = await asyncio.to_thread(inspector.sample_remote_dataset, parsed_url.dataset_id, metadata)
             inspector.close()
             await asyncio.sleep(0.2)
@@ -132,10 +177,11 @@ async def analyze_dataset_stream(dataset_url: str = Query(...)):
             metrics = det_analyzer.analyze(sample_result.sampled_rows)
             await asyncio.sleep(0.2)
 
-            # Step 5: GPT Semantic Analysis
-            yield f"data: {json.dumps({'type': 'progress', 'step': 5, 'message': '✓ GPT semantik analizi ve LLM eğitim uygunluğu değerlendiriliyor...'}, ensure_ascii=False)}\n\n"
-            gpt_analyzer = GPTAnalyzer()
-            report: GPTAnalysisReport = await asyncio.to_thread(gpt_analyzer.analyze_dataset, metadata, sample_result, metrics)
+            # Step 5: Active Provider Semantic Analysis
+            p_label = "Google Gemini" if active_p == "gemini" else "OpenAI"
+            yield f"data: {json.dumps({'type': 'progress', 'step': 5, 'message': f'✓ {p_label} semantik analizi ve LLM eğitim uygunluğu değerlendiriliyor...'}, ensure_ascii=False)}\n\n"
+            llm_provider = LLMProviderFactory.get_provider(active_p)
+            report: SemanticAnalysisReport = await asyncio.to_thread(llm_provider.analyze_dataset, metadata, sample_result, metrics)
             await asyncio.sleep(0.2)
 
             # Cache report for download endpoints
@@ -185,6 +231,8 @@ def download_report_markdown(report_id: str):
 
 **Dataset:** {rep['dataset_id']}
 **Revision:** `{rep.get('revision') or 'main'}`
+**AI Sağlayıcısı:** `{rep.get('llm_provider', 'gemini').upper()}` ({rep.get('llm_model', '')})
+**Semantik Analiz Durumu:** {rep.get('semantic_analysis_status', 'Başarılı')}
 **Analiz Kararı:** {rep['download_recommendation']}
 **Veri Kalitesi Skor:** {rep['data_quality']}
 **Analiz Güven Seviyesi:** %{rep['analysis_confidence_score']} ({rep['analysis_confidence_reason']})
